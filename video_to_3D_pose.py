@@ -2,6 +2,7 @@ import cv2
 import mediapipe as mp
 import numpy as np
 from utils import *
+import argparse
 
 def get_2d_3d_pose(input_video_path, frame_count):
     
@@ -97,8 +98,16 @@ def get_transformation_from_local_to_camera(landmark_3d_arr, landmark_2d_arr, fx
 
 if __name__ == '__main__':
 
-    MAX_FRAME = 700
-    FC = "FC1"
+    # Parse command line arguments
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--FC', type=str, help='FC1 or FC2')
+    parser.add_argument('--frame_count', type=int, help='Number of frames to process')
+    
+    args = parser.parse_args()
+
+    FC = args.FC
+    MAX_FRAME = args.frame_count
     fx = 1.71847e+03 if FC == "FC1" else 1.85417e+03
     fy = 1.53787e+03 if FC == "FC1" else 1.65964e+03
     cx = 6.23459e+02 if FC == "FC1" else 6.22157e+02

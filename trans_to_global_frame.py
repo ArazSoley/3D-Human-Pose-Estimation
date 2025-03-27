@@ -10,6 +10,7 @@ import os
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from scipy.signal import savgol_filter
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+import argparse
 
 def transform_to_global_frame(landmarks, rotation_matrix, translation_vec):
     # Applying rotation matrix to landmarks
@@ -29,7 +30,7 @@ def create_global_video(landmarks1, landmarks2, connections, output_video_path, 
     out = cv2.VideoWriter(output_video_path, fourcc, fps, size)
 
     # Create a figure once with size matching the video dimensions
-    dpi = 100
+    dpi = 75
     fig = plt.figure(figsize=(size[0] / dpi, size[1] / dpi), dpi=dpi)
     ax = fig.add_subplot(111, projection='3d')
     canvas = FigureCanvas(fig)  
@@ -39,9 +40,9 @@ def create_global_video(landmarks1, landmarks2, connections, output_video_path, 
         # Clear the axis to redraw the new frame
         ax.cla()
 
-        ax.set_xlim([-1, 1.5])
-        ax.set_ylim([0, 2.5])
-        ax.set_zlim([-1, 1])
+        ax.set_xlim([-1, 1])
+        ax.set_ylim([0.5, 2.5])
+        ax.set_zlim([-1, 0.5])
 
         # Plotting the table
         # Draw a circular table as a filled disk
@@ -71,7 +72,7 @@ def create_global_video(landmarks1, landmarks2, connections, output_video_path, 
                 [landmarks2[frame, start_idx, 0], landmarks2[frame, end_idx, 0]],
                 [landmarks2[frame, start_idx, 2], landmarks2[frame, end_idx, 2]],
                 [-landmarks2[frame, start_idx, 1], -landmarks2[frame, end_idx, 1]],  # Note: Using z for y-axis
-                c = 'r'
+                c = 'g'
             )
 
         # Plot joints
@@ -86,7 +87,7 @@ def create_global_video(landmarks1, landmarks2, connections, output_video_path, 
             landmarks2[frame, :25, 0],
             landmarks2[frame, :25, 2],
             -landmarks2[frame, :25, 1],
-            c='b',
+            c='g',
             s=20  # Size of the joints
         )
 
@@ -94,16 +95,17 @@ def create_global_video(landmarks1, landmarks2, connections, output_video_path, 
         ax.set_ylabel('Z')
         ax.set_zlabel('Y')
 
+        fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
+
         # Render the canvas to the in-memory buffer
         canvas.draw()
         # Retrieve the RGBA buffer as a NumPy array
         w, h = fig.canvas.get_width_height()
         img = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8).reshape(h, w, 4)
         # Convert RGBA to RGB (video codecs typically expect 3 channels)
-        img = cv2.cvtColor(img, cv2.COLOR_RGBA2RGB)
+        img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
 
         out.write(img)
-
 
     # Cleanup
     plt.close(fig)
@@ -123,6 +125,17 @@ def apply_filter(landmarks, window_length, polyorder):
     return smoothed_translations
 
 if __name__ == '__main__':
+
+    # Parse command line arguments
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--apply_filter', type=bool, help='Apply Savitzky-Golay filter', default=True)
+    parser.add_argument('--output_video', type=str, help='Output video name', default="trans_to_global_frame.mp4")
+    
+    args = parser.parse_args()
+
+    APPLY_FILTER = args.apply_filter
+    OUTPUT_VIDEO = args.output_video
 
     # # The rotation axis and vector as calculated from calibration
     # rotation_axis = np.array([0.01027114, 0.98935196, 0.14478112])
@@ -161,7 +174,7 @@ if __name__ == '__main__':
     # Transforming FC1 landmarks to FC2 frame
     landmarks_FC1 = transform_to_global_frame(landmarks_FC1, rotation_matrix, translation_vec)
 
-    output_video_path = "./outputs/GlobalMediaPipe_FC2.mp4"
+    output_video_path = "./outputs/" + OUTPUT_VIDEO
     fps = 25
 
     connections = [
@@ -172,10 +185,13 @@ if __name__ == '__main__':
             (11, 13), (13, 15), (15, 17),  # Right arm
             (12, 14), (14, 16), (16, 18),  # Left arm
             (11, 23), (12, 24),  # Torso
-            (23, 24)
+            (23, 24),
+            (15, 17), (15, 19), (15, 21), (17, 19), # Right wrist
+            (16, 18), (16, 20), (16, 22), (18, 20) # Left wrist
         ]
     
-    landmarks_FC1 = apply_filter(landmarks_FC1, 5, 2)
-    landmarks_FC2 = apply_filter(landmarks_FC2, 5, 2)
-    
+    if APPLY_FILTER:
+        landmarks_FC1 = apply_filter(landmarks_FC1, 7, 2)
+        landmarks_FC2 = apply_filter(landmarks_FC2, 7, 2)
+        
     create_global_video(landmarks_FC1, landmarks_FC2, connections, output_video_path, fps)

@@ -106,8 +106,8 @@ def get_transformation_from_local_to_camera(landmark_3d_arr, landmark_2d_arr, fx
 
 if __name__ == '__main__':
 
-    MAX_FRAME = 1000
-    FC = "FC2"
+    MAX_FRAME = 600
+    FC = "FC1"
     fx = 1.71847e+03 if FC == "FC1" else 1.85417e+03
     fy = 1.53787e+03 if FC == "FC1" else 1.65964e+03
     cx = 6.23459e+02 if FC == "FC1" else 6.22157e+02

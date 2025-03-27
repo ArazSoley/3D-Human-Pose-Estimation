@@ -1,8 +1,7 @@
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
-import os
-
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
 def transform_to_global_frame(landmarks, rotation_matrix, translation_vec):
     # Applying rotation matrix to landmarks
@@ -13,7 +12,6 @@ def transform_to_global_frame(landmarks, rotation_matrix, translation_vec):
 
     return landmarks
 
-
 def convert_to_video(hand_dist, output_video_path, fps = 25, size = (1280, 720)):
 
     FRAME_COUNT = hand_dist.shape[0]
@@ -22,42 +20,47 @@ def convert_to_video(hand_dist, output_video_path, fps = 25, size = (1280, 720))
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_video_path, fourcc, fps, size)
 
+    # Create a figure once with size matching the video dimensions
+    dpi = 100
+    fig = plt.figure(figsize=(size[0] / dpi, size[1] / dpi), dpi=dpi)
+    ax = fig.add_subplot(111)
+    canvas = FigureCanvas(fig)  
+
+    x = np.arange(hand_dist.shape[0])
+
     for frame in range(FRAME_COUNT):
 
-        x = np.arange(hand_dist.shape[0])
+        ax.cla()
 
         # Create the plot
-        plt.figure(figsize=(6, 4))
-        plt.plot(x, hand_dist, linestyle='-', color='b', label="Data")
+        ax.plot(x, hand_dist, linestyle='-', color='b', label="Data")
 
-        plt.scatter(x[frame], hand_dist[frame], color='red', s=100, label="Point")
+        ax.scatter(x[frame], hand_dist[frame], color='red', s=100, label="Point")
 
         # Add text to the upper right corner
-        plt.text(0.95, 0.95, "%0.2f m" % hand_dist[frame], fontsize=12, color="black",
+        ax.text(0.95, 0.95, "%0.2f m" % hand_dist[frame], fontsize=12, color="black",
          ha="right", va="top", transform=plt.gca().transAxes)
 
         # Customize the plot
-        plt.xlabel("frame")
-        plt.ylabel("hand distance (m)")
-        plt.title("Distance between Fc1 and Fc2 hands")
-        plt.legend()
+        ax.set_xlabel("frame")
+        ax.set_ylabel("hand distance (m)")
+        ax.set_title("Distance between Fc1 and Fc2 hands")
+        ax.legend()
 
-        # Save plot to image
-        plot_filename = f"hand_dist_plot_{frame:04d}.png"
-        plt.savefig(plot_filename)
+        fig.subplots_adjust(left=0.1, right=0.9, bottom=0.1, top=0.9)
 
-        # Read plot image
-        plot_image = cv2.imread(plot_filename)
-        plot_image = cv2.resize(plot_image, size)
+        # Render the canvas to the in-memory buffer
+        canvas.draw()
+        # Retrieve the RGBA buffer as a NumPy array
+        w, h = fig.canvas.get_width_height()
+        img = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8).reshape(h, w, 4)
+        # Convert RGBA to RGB (video codecs typically expect 3 channels)
+        img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
 
-        # Write combined frame to output video
-        out.write(plot_image)
+        out.write(img)
 
-        # Remove the plot image file
-        os.remove(plot_filename)
-        
-        plt.close()
-
+    # Cleanup
+    plt.close(fig)
     out.release()
     cv2.destroyAllWindows()
 
