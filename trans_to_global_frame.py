@@ -7,9 +7,9 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 import os
-from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from scipy.signal import savgol_filter
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
 def transform_to_global_frame(landmarks, rotation_matrix, translation_vec):
     # Applying rotation matrix to landmarks
@@ -28,10 +28,17 @@ def create_global_video(landmarks1, landmarks2, connections, output_video_path, 
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_video_path, fourcc, fps, size)
 
+    # Create a figure once with size matching the video dimensions
+    dpi = 100
+    fig = plt.figure(figsize=(size[0] / dpi, size[1] / dpi), dpi=dpi)
+    ax = fig.add_subplot(111, projection='3d')
+    canvas = FigureCanvas(fig)  
+
     for frame in range(FRAME_COUNT):
 
-        fig = plt.figure(figsize=(8, 8))
-        ax = fig.add_subplot(111, projection='3d')
+        # Clear the axis to redraw the new frame
+        ax.cla()
+
         ax.set_xlim([-1, 1.5])
         ax.set_ylim([0, 2.5])
         ax.set_zlim([-1, 1])
@@ -50,7 +57,6 @@ def create_global_video(landmarks1, landmarks2, connections, output_video_path, 
         table = Poly3DCollection(verts, color='sienna', alpha=0.5)
         ax.add_collection3d(table)
 
-
         # Plot connections
         for connection in connections:
             start_idx, end_idx = connection
@@ -58,16 +64,14 @@ def create_global_video(landmarks1, landmarks2, connections, output_video_path, 
                 [landmarks1[frame, start_idx, 0], landmarks1[frame, end_idx, 0]],
                 [landmarks1[frame, start_idx, 2], landmarks1[frame, end_idx, 2]],
                 [-landmarks1[frame, start_idx, 1], -landmarks1[frame, end_idx, 1]],  # Note: Using z for y-axis
-                c = 'b',
-                zorder = 20
+                c = 'b'
             )
 
             ax.plot(
                 [landmarks2[frame, start_idx, 0], landmarks2[frame, end_idx, 0]],
                 [landmarks2[frame, start_idx, 2], landmarks2[frame, end_idx, 2]],
                 [-landmarks2[frame, start_idx, 1], -landmarks2[frame, end_idx, 1]],  # Note: Using z for y-axis
-                c = 'r',
-                zorder = 20
+                c = 'r'
             )
 
         # Plot joints
@@ -76,37 +80,33 @@ def create_global_video(landmarks1, landmarks2, connections, output_video_path, 
             landmarks1[frame, :25, 2],
             -landmarks1[frame, :25, 1],
             c='b',
-            s=20,  # Size of the joints
-            zorder = 20
+            s=20  # Size of the joints
         )
         ax.scatter(
             landmarks2[frame, :25, 0],
             landmarks2[frame, :25, 2],
             -landmarks2[frame, :25, 1],
             c='b',
-            s=20,  # Size of the joints
-            zorder = 20
+            s=20  # Size of the joints
         )
 
         ax.set_xlabel('X')
         ax.set_ylabel('Z')
         ax.set_zlabel('Y')
 
-        # Save plot to image
-        plot_filename = f"plot_{frame:04d}.png"
-        plt.savefig(plot_filename)
-        plt.close(fig)
+        # Render the canvas to the in-memory buffer
+        canvas.draw()
+        # Retrieve the RGBA buffer as a NumPy array
+        w, h = fig.canvas.get_width_height()
+        img = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8).reshape(h, w, 4)
+        # Convert RGBA to RGB (video codecs typically expect 3 channels)
+        img = cv2.cvtColor(img, cv2.COLOR_RGBA2RGB)
 
-        # Read plot image
-        plot_image = cv2.imread(plot_filename)
-        plot_image = cv2.resize(plot_image, size)
+        out.write(img)
 
-         # Write combined frame to output video
-        out.write(plot_image)
 
-        # Remove the plot image file
-        os.remove(plot_filename)
-
+    # Cleanup
+    plt.close(fig)
     out.release()
     cv2.destroyAllWindows()
 
