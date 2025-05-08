@@ -9,7 +9,6 @@ import os
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from scipy.signal import savgol_filter
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
-import argparse
 
 def transform_to_global_frame(landmarks, rotation_matrix, translation_vec):
     # Applying rotation matrix to landmarks
@@ -125,56 +124,21 @@ def apply_filter(landmarks, window_length, polyorder):
 
 if __name__ == '__main__':
 
-    # Parse command line arguments
-    parser = argparse.ArgumentParser()
+    #################### Using the average rotation matrix ####################
+    rotation_matrix = np.array([[0.07368957,  0.15444128, -0.98525009],
+                                [-0.13508931,  0.98037621,  0.14357358],
+                                [0.98808943,  0.12251688,  0.09310687]])
 
-    parser.add_argument('--apply_filter', type=bool, help='Apply Savitzky-Golay filter', default=True)
-    parser.add_argument('--output_video', type=str, help='Output video name', default="trans_to_global_frame.mp4")
-    
-    args = parser.parse_args()
-
-    APPLY_FILTER = args.apply_filter
-    OUTPUT_VIDEO = args.output_video
-
-    # # The rotation axis and vector as calculated from calibration
-    # rotation_axis = np.array([0.01027114, 0.98935196, 0.14478112])
-    # rotation_axis = rotation_axis / np.linalg.norm(rotation_axis)
-    # rotation_angle = -85.873476 * np.pi / 180
-
-    # # Scaling the vector by the rotation angle
-    # rotation_axis *= rotation_angle
-
-    # # Converting the vector to a rotation matrix
-    # rotation_matrix, _ = cv2.Rodrigues(rotation_axis)
-
-    #################### Using the rotation matrix of the session ####################
-    rotation_matrix = np.array([[1.0248006017271942e-01, 1.5928201719510268e-01,
-           -9.8189972821325022e-01], [-1.1369102978260752e-01,
-           9.8250390051985037e-01, 1.4751418647116760e-01],
-           [9.8821667007492131e-01, 9.6515928537931867e-02,
-           1.1879599540596802e-01]])
-
-    # # The translation vector as calculated from calibration
-    # translation_vec = np.array([1.32062178736, -1.8179693471e-1, 1.14209545961])
-
-    #################### Using the translation vector of the session ####################
-    translation_vec = np.array([ 1.3751606712503894e+03, -1.5861831506211050e+02,
-           1.0806767616717004e+03 ])
+    #################### Using the average translation vector ####################
+    translation_vec = np.array([1320.62178736, -181.79693471, 1142.09545961])
     
     # Converting to meters
     translation_vec *= 1e-3
 
-    # Loading 3D landmarks of Fc1 in camera frame
-    landmarks_FC1 = np.load('./UDIVAv0.5/MediaPipe/018020/FC1_landmark_3d_cam.npy')
+    landmarks_path = './UDIVAv0.5/MediaPipe/lego_train'
 
-    # Loading 3D landmarks of Fc2 in camera frame
-    landmarks_FC2 = np.load('./UDIVAv0.5/MediaPipe/018020/FC2_landmark_3d_cam.npy')
-
-    # Transforming FC1 landmarks to FC2 frame
-    landmarks_FC1 = transform_to_global_frame(landmarks_FC1, rotation_matrix, translation_vec)
-
-    output_video_path = "./outputs/" + OUTPUT_VIDEO
     fps = 25
+    APPLY_FILTER = True
 
     connections = [
             (0, 1), (1, 2), (2, 3), (3, 7),  # Head
@@ -188,9 +152,37 @@ if __name__ == '__main__':
             (15, 17), (15, 19), (15, 21), (17, 19), # Right wrist
             (16, 18), (16, 20), (16, 22), (18, 20) # Left wrist
         ]
-    
-    if APPLY_FILTER:
-        landmarks_FC1 = apply_filter(landmarks_FC1, 11, 2)
-        landmarks_FC2 = apply_filter(landmarks_FC2, 11, 2)
+
+    # Iterate through all entries in the dataset directory
+    for entry in os.listdir(landmarks_path):
+        # Construct the output directory
+        output_video_dir = os.path.join("./videos/lego_train/", entry)
         
-    create_global_video(landmarks_FC1, landmarks_FC2, connections, output_video_path, fps)
+        if not os.path.exists(output_video_dir):
+            
+            # Construct the full path to the entry
+            entry_path = os.path.join(landmarks_path, entry)
+            # Check if the entry is a directory
+            if os.path.isdir(entry_path):
+
+                landmarks_FC1_path = os.path.join(entry_path, "FC1_landmark_3d_cam.npy")
+                landmarks_FC2_path = os.path.join(entry_path, "FC2_landmark_3d_cam.npy")
+
+                landmarks_FC1 = np.load(landmarks_FC1_path)
+                landmarks_FC2 = np.load(landmarks_FC2_path)
+
+                # Transforming FC1 landmarks to FC2 frame
+                landmarks_FC1 = transform_to_global_frame(landmarks_FC1, rotation_matrix, translation_vec)
+
+                output_video_path = output_video_dir + "/" + entry + "_landmarker_oneeuro_savgol_11_2" + ".mp4"
+
+                if APPLY_FILTER:
+                    landmarks_FC1 = apply_filter(landmarks_FC1, 11, 2)
+                    landmarks_FC2 = apply_filter(landmarks_FC2, 11, 2)
+
+                # Create directory if it doesn't exist
+                os.makedirs(output_video_dir, exist_ok=True)
+                
+                print("Creating video for: ", entry)
+
+                create_global_video(landmarks_FC1, landmarks_FC2, connections, output_video_path, fps)

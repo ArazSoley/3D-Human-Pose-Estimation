@@ -174,3 +174,100 @@ def local_to_camera_transformation_ransac(pts3d, pts2d, fx, fy, cx, cy, dist_coe
     R, _ = cv2.Rodrigues(rvec)
 
     return R, tvec
+
+
+def smoothing_factor(t_e: float, cutoff: np.ndarray) -> np.ndarray:
+    """
+    Compute smoothing factor α for time elapsed t_e and cutoff frequency(s).
+    α = (2π·cutoff·t_e) / (1 + 2π·cutoff·t_e)
+    """
+    r = 2 * np.pi * cutoff * t_e
+    return r / (1.0 + r)
+
+
+def exponential_smoothing(alpha: np.ndarray, x: np.ndarray, x_prev: np.ndarray) -> np.ndarray:
+    """
+    Perform one step of exponential smoothing:
+        x_hat = α·x + (1−α)·x_prev
+    """
+    return alpha * x + (1.0 - alpha) * x_prev
+
+
+class OneEuroFilterVector:
+    """
+    One Euro filter, vectorized over arbitrary NumPy array shapes.
+
+    Parameters
+    ----------
+    t0 : float
+        Initial timestamp.
+    x0 : np.ndarray
+        Initial signal array (e.g. shape (33,3) for 33 joints in 3D).
+    dx0 : np.ndarray, optional
+        Initial derivative array (same shape as x0). Default is zeros.
+    min_cutoff : float, optional
+        Minimum cutoff frequency. Default is 0.05.
+    beta : float, optional
+        Speed-bias factor. Default is 80.0.
+    d_cutoff : float, optional
+        Cutoff frequency for the derivative. Default is 1.0.
+    """
+    def __init__(
+        self,
+        t0: float,
+        x0: np.ndarray,
+        dx0: np.ndarray = None,
+        min_cutoff: float = 0.05,
+        beta: float = 80.0,
+        d_cutoff: float = 1.0
+    ):
+        self.min_cutoff = float(min_cutoff)
+        self.beta = float(beta)
+        self.d_cutoff = float(d_cutoff)
+
+        # Previous state (arrays of same shape as x0)
+        self.x_prev = x0.astype(float)
+        self.dx_prev = np.zeros_like(self.x_prev) if dx0 is None else dx0.astype(float)
+        self.t_prev = float(t0)
+
+    def __call__(self, t: float, x: np.ndarray) -> np.ndarray:
+        """
+        Apply the filter to a new sample x at time t.
+
+        Parameters
+        ----------
+        t : float
+            Current timestamp.
+        x : np.ndarray
+            Current signal array (same shape as x0).
+
+        Returns
+        -------
+        np.ndarray
+            The filtered signal (same shape as x).
+        """
+        t_e = t - self.t_prev
+        if t_e <= 0:
+            # No time elapsed: return previous value
+            return self.x_prev
+
+        # 1) Derivative of the signal
+        dx = (x - self.x_prev) / t_e
+
+        # 2) Filter derivative
+        a_d = smoothing_factor(t_e, self.d_cutoff)  # scalar → broadcast to array
+        dx_hat = exponential_smoothing(a_d, dx, self.dx_prev)
+
+        # 3) Adaptive cutoff
+        cutoff = self.min_cutoff + self.beta * np.abs(dx_hat)
+
+        # 4) Filter signal
+        a = smoothing_factor(t_e, cutoff)  # array of shape x
+        x_hat = exponential_smoothing(a, x, self.x_prev)
+
+        # Update state
+        self.x_prev = x_hat
+        self.dx_prev = dx_hat
+        self.t_prev = t
+
+        return x_hat

@@ -2,8 +2,9 @@ import cv2
 import numpy as np
 from utils import *
 import mediapipe as mp
+from tqdm import tqdm
 
-def get_2d_3d_pose(input_video_path, frame_count):
+def get_2d_3d_pose(input_video_path, frame_count, apply_filter=False):
 
     model_path = './models/pose_landmarker_heavy.task'
 
@@ -14,9 +15,9 @@ def get_2d_3d_pose(input_video_path, frame_count):
 
     # Create a pose landmarker instance with the video mode:
     options = PoseLandmarkerOptions(
-        base_options=BaseOptions(model_asset_path=model_path),
+        base_options=BaseOptions(model_asset_path=model_path, delegate=BaseOptions.Delegate.GPU),
         running_mode=VisionRunningMode.VIDEO,
-        min_tracking_confidence = 0.95,
+        min_tracking_confidence = 0.90,
         min_pose_detection_confidence = 0.8)
     
     # Initialize video capture
@@ -31,43 +32,54 @@ def get_2d_3d_pose(input_video_path, frame_count):
         landmark_2d_arr = np.empty((frame_count, 33, 2))
 
         frame_id = 0
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
+        
+        for frame_id in tqdm(range(frame_count)):
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    break
 
-            # Convert BGR to RGB
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                # Convert BGR to RGB
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-            # Convert the frame received from OpenCV to a MediaPipe’s Image object.
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+                # Convert the frame received from OpenCV to a MediaPipe’s Image object.
+                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
 
-            # Process frame
-            results = landmarker.detect_for_video(mp_image, int((frame_id + 1) / fps * 1000))
+                # Process frame
+                results = landmarker.detect_for_video(mp_image, int((frame_id + 1) / fps * 1000))
 
-            if results.pose_landmarks:
+                if results.pose_landmarks:
 
-                # Extract 3D landmarks
-                landmarks_3d = np.array(
-                    [[lmk.x, lmk.y, lmk.z] for lmk in results.pose_world_landmarks[0]]
-                )
+                    # Extract 3D landmarks
+                    landmarks_3d = np.array(
+                        [[lmk.x, lmk.y, lmk.z] for lmk in results.pose_world_landmarks[0]]
+                    )
 
-                # Extract 2D landmarks
-                landmarks_2d = np.array(
-                    [[lmk.x, lmk.y] for lmk in results.pose_landmarks[0]]
-                )
+                    # Extract 2D landmarks
+                    landmarks_2d = np.array(
+                        [[lmk.x, lmk.y] for lmk in results.pose_landmarks[0]]
+                    )
 
-                # Scale 2D landmarks
-                landmarks_2d[:,0] *= width
-                landmarks_2d[:,1] *= height
+                    # Scale 2D landmarks
+                    landmarks_2d[:,0] *= width
+                    landmarks_2d[:,1] *= height
 
-                landmark_3d_arr[frame_id] = landmarks_3d
-                landmark_2d_arr[frame_id] = landmarks_2d
+                    landmark_3d_arr[frame_id] = landmarks_3d
+                    landmark_2d_arr[frame_id] = landmarks_2d
 
-            frame_id += 1
+                frame_id += 1
 
-            if frame_id == frame_count:
-                break
+                if frame_id == frame_count:
+                    break
+
+    if apply_filter:
+        # Apply one Euro filter to the landmarks
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        times = [t / fps for t in range(frame_count)]
+        filter = OneEuroFilterVector(t0=0, x0=landmark_3d_arr[0], dx0=np.zeros((33,3)))
+        landmark_3d_arr = np.array([filter(t, x) for t, x in zip(times, landmark_3d_arr)])
+        filter = OneEuroFilterVector(t0=0, x0=landmark_2d_arr[0], dx0=np.zeros((33,2)))
+        landmark_2d_arr = np.array([filter(t, x) for t, x in zip(times, landmark_2d_arr)])
 
     print(f"Processed {frame_id} frames.")
 
@@ -107,7 +119,7 @@ def get_transformation_from_local_to_camera(landmark_3d_arr, landmark_2d_arr, fx
 if __name__ == '__main__':
 
     MAX_FRAME = 600
-    FC = "FC1"
+    FC = "FC2"
     fx = 1.71847e+03 if FC == "FC1" else 1.85417e+03
     fy = 1.53787e+03 if FC == "FC1" else 1.65964e+03
     cx = 6.23459e+02 if FC == "FC1" else 6.22157e+02
@@ -118,7 +130,7 @@ if __name__ == '__main__':
     # Input/Output paths
     input_video_path = f"../input_videos/{FC}_rtmw.mp4"
 
-    landmark_3d_arr, landmark_2d_arr = get_2d_3d_pose(input_video_path, MAX_FRAME)
+    landmark_3d_arr, landmark_2d_arr = get_2d_3d_pose(input_video_path, MAX_FRAME, False)
 
     # Finding transformation from local to camera frame
     t_arr, R_arr = get_transformation_from_local_to_camera(landmark_3d_arr, landmark_2d_arr, fx, fy, cx, cy, dist_coeffs, threshold=0.5)

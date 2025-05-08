@@ -3,6 +3,7 @@ import mediapipe as mp
 import numpy as np
 from utils import *
 import argparse
+from scipy import stats
 
 def get_2d_3d_pose(input_video_path, frame_count):
     
@@ -78,7 +79,7 @@ def get_transformation_from_local_to_camera(landmark_3d_arr, landmark_2d_arr, fx
         R_est, t_est = local_to_camera_transformation(landmark_3d_arr[frame], landmark_2d_arr[frame], fx, fy, cx, cy, dist_coeffs)
 
         landmark_3d_cam = transform_to_camera_frame(landmark_3d_arr[frame], R_est, t_est)
-        
+
         if landmark_3d_cam[9][2] < 0:
             print("NEGATIVE")
             t_arr[frame] = t_arr[frame - 1]
@@ -90,7 +91,7 @@ def get_transformation_from_local_to_camera(landmark_3d_arr, landmark_2d_arr, fx
         else:
             t_arr[frame] = t_est.reshape(3,)
             R_arr[frame] = R_est
-
+        
     print("mean t:", np.mean(t_arr, axis=0))
     print("std t:", np.std(t_arr, axis=0))
 
